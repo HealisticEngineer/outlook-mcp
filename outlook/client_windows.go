@@ -15,7 +15,8 @@ import (
 const (
 	olFolderInbox = 6
 	olMailItem    = 0
-	maxResults    = 25
+	maxResults    = 50
+	maxUnread     = 200
 )
 
 // Client serializes all COM work onto one STA-bound OS thread.
@@ -59,12 +60,15 @@ func (c *Client) ListUnread() ([]Email, error) {
 			return err
 		}
 		defer items.Release()
-		filtered, err := oleutil.CallMethod(items, "Restrict", "[UnRead] = True")
+		filtered, err := oleutil.CallMethod(items, "Restrict", buildUnreadRestriction())
 		if err != nil {
 			return fmt.Errorf("restrict unread items: %w", err)
 		}
 		defer filtered.Clear()
-		return collectEmails(filtered.ToIDispatch(), &emails)
+		if _, err := oleutil.CallMethod(filtered.ToIDispatch(), "Sort", "[ReceivedTime]", true); err != nil {
+			return fmt.Errorf("sort unread items: %w", err)
+		}
+		return collectEmails(filtered.ToIDispatch(), &emails, maxUnread)
 	})
 	return emails, err
 }
@@ -81,6 +85,27 @@ func (c *Client) ReadEmail(entryID string) (Email, error) {
 		return err
 	})
 	return email, err
+}
+
+// MarkAsRead marks an Outlook mail item as read and saves the change.
+func (c *Client) MarkAsRead(entryID string) error {
+	if strings.TrimSpace(entryID) == "" {
+		return fmt.Errorf("email EntryID is required")
+	}
+	return c.dispatch(func() error {
+		item, err := itemFromID(entryID)
+		if err != nil {
+			return err
+		}
+		defer item.Release()
+		if _, err := oleutil.PutProperty(item, "UnRead", false); err != nil {
+			return fmt.Errorf("mark item as read: %w", err)
+		}
+		if _, err := oleutil.CallMethod(item, "Save"); err != nil {
+			return fmt.Errorf("save read status: %w", err)
+		}
+		return nil
+	})
 }
 
 func (c *Client) CreateDraft(params DraftParams) (string, error) {
@@ -133,9 +158,13 @@ func (c *Client) SearchEmails(params SearchParams) ([]Email, error) {
 		if _, err := oleutil.CallMethod(filtered.ToIDispatch(), "Sort", "[ReceivedTime]", true); err != nil {
 			return fmt.Errorf("sort search items: %w", err)
 		}
-		return collectEmails(filtered.ToIDispatch(), &emails)
+		return collectEmails(filtered.ToIDispatch(), &emails, maxResults)
 	})
 	return emails, err
+}
+
+func buildUnreadRestriction() string {
+	return "[UnRead] = True"
 }
 
 func buildDASLQuery(params SearchParams) string {
@@ -230,17 +259,17 @@ func itemFromID(entryID string) (*ole.IDispatch, error) {
 	return item, nil
 }
 
-func collectEmails(items *ole.IDispatch, emails *[]Email) error {
+func collectEmails(items *ole.IDispatch, emails *[]Email, limit int) error {
 	count, err := oleutil.GetProperty(items, "Count")
 	if err != nil {
 		return fmt.Errorf("get item count: %w", err)
 	}
 	defer count.Clear()
-	limit := int(count.Val)
-	if limit > maxResults {
-		limit = maxResults
+	countToRead := int(count.Val)
+	if limit > 0 && countToRead > limit {
+		countToRead = limit
 	}
-	for index := 1; index <= limit; index++ {
+	for index := 1; index <= countToRead; index++ {
 		value, err := oleutil.CallMethod(items, "Item", index)
 		if err != nil {
 			return fmt.Errorf("get item %d: %w", index, err)

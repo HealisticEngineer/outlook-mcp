@@ -4,18 +4,20 @@ Outlook MCP is a local Windows [Model Context Protocol](https://modelcontextprot
 
 ## Features
 
-- List up to 25 unread messages from the default Outlook Inbox.
+- List up to 200 unread messages from the default Outlook Inbox.
 - Read a message by its Outlook `EntryID`.
 - Search Inbox messages by subject text, sender, and received date.
 - Create and save Outlook drafts.
+- Mark original messages as read only after their reply drafts are saved.
 - List, read, search, and safely write Markdown knowledge-base documents.
 - Embed default knowledge-base documents in the executable and allow local disk overrides.
 
 ## Security boundaries
 
-This server is deliberately **email read-and-draft only**:
+This server is deliberately limited to **email reading, draft creation, and message read-status updates**:
 
 - It has no email send operation and does not call Outlook's `Send` method.
+- It marks a message as read only through the explicit `mark_email_as_read` tool; the email triage agent calls that tool only after its associated draft is saved.
 - It uses the interactive user's existing local MAPI profile; it does not use Microsoft Graph, OAuth, API keys, or external credentials.
 - Knowledge-base reads accept only paths relative to the configured knowledge-base root.
 - Knowledge-base writes are limited to `.md` files under `OUTLOOK_MCP_KB_DIR`; absolute paths, traversal attempts, and symlinked target paths are rejected.
@@ -82,10 +84,11 @@ Default documents are compiled into the executable under `defaults/`. A local fi
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `list_unread_emails` | None | Lists up to 25 unread emails from the default Inbox. |
+| `list_unread_emails` | None | Lists up to 200 unread emails from the default Inbox, newest first. |
 | `read_email` | `id` (required) | Reads an email by its Outlook `EntryID`. |
+| `mark_email_as_read` | `id` (required) | Marks an email as read after its reply draft was saved. |
 | `create_draft` | `to`, `subject`, `body` (required) | Creates and saves an Outlook draft. It never sends email. |
-| `search_emails` | `query`, `sender`, `start_date` | Searches Inbox messages. Supply at least one parameter; `start_date` must be RFC3339, such as `2026-10-24T14:30:00Z`. |
+| `search_emails` | `query`, `sender`, `start_date` | Searches up to 50 Inbox messages. Supply at least one parameter; `start_date` must be RFC3339, such as `2026-10-24T14:30:00Z`. |
 | `kb_list_docs` | None | Lists available Markdown document paths. |
 | `kb_search` | `query` (required) | Case-insensitively searches document paths and contents. |
 | `kb_read_doc` | `path` (required) | Reads a document by its relative Markdown path. |

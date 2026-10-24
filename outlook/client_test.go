@@ -68,3 +68,9 @@ func TestDASLQueryBuilder(t *testing.T) {
 		})
 	}
 }
+
+func TestUnreadRestriction(t *testing.T) {
+	if got, want := buildUnreadRestriction(), "[UnRead] = True"; got != want {
+		t.Errorf("buildUnreadRestriction() = %q, want %q", got, want)
+	}
+}

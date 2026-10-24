@@ -136,3 +136,4 @@ go build -ldflags="-s -w" -o outlook-mcp.exe .
 - **No messages found:** The server queries the default Inbox. Confirm the messages are in that folder and that search filters use the expected sender or subject text.
 - **Knowledge-base document missing:** Confirm it has a `.md` extension and is under `OUTLOOK_MCP_KB_DIR`, or use one of the embedded documents returned by `kb_list_docs`.
 - **Copilot cannot start the server:** Re-run `copilot mcp add outlook -- "$PWD\outlook-mcp.exe"` from the directory containing the built executable.
+- **Tool output is too large to read:** This is a Copilot runtime display limit and cannot be reset. Use narrower email searches, retrieve messages individually with `read_email`, or configure the client workflow to use smaller or paginated responses.

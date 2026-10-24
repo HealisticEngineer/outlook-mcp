@@ -4,7 +4,7 @@ Outlook MCP is a local Windows [Model Context Protocol](https://modelcontextprot
 
 ## Features
 
-- List up to 200 unread messages from the default Outlook Inbox.
+- List paginated metadata summaries of up to 2,000 unread messages from the default Outlook Inbox.
 - Read a message by its Outlook `EntryID`.
 - Search Inbox messages by subject text, sender, and received date.
 - Create and save Outlook drafts.
@@ -16,7 +16,7 @@ Outlook MCP is a local Windows [Model Context Protocol](https://modelcontextprot
 
 This server is deliberately limited to **email reading, draft creation, and message read-status updates**:
 
-- It has no email send operation and does not call Outlook's `Send` method.
+- It has no email send, delete, move, or forward operation and does not call Outlook's `Send` method.
 - It marks a message as read only through the explicit `mark_email_as_read` tool; the email triage agent calls that tool only after its associated draft is saved.
 - It uses the interactive user's existing local MAPI profile; it does not use Microsoft Graph, OAuth, API keys, or external credentials.
 - Knowledge-base reads accept only paths relative to the configured knowledge-base root.
@@ -84,7 +84,7 @@ Default documents are compiled into the executable under `defaults/`. A local fi
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `list_unread_emails` | None | Lists up to 200 unread emails from the default Inbox, newest first. |
+| `list_unread_emails` | `limit`, `offset` | Lists metadata summaries from the newest 2,000 unread emails in the default Inbox, newest first. `limit` defaults to 5; use `read_email` to retrieve a message body. |
 | `read_email` | `id` (required) | Reads an email by its Outlook `EntryID`. |
 | `mark_email_as_read` | `id` (required) | Marks an email as read after its reply draft was saved. |
 | `create_draft` | `to`, `subject`, `body` (required) | Creates and saves an Outlook draft. It never sends email. |
@@ -106,7 +106,7 @@ The repository includes an Email Triage and Drafting Agent at `.github/agents/em
 copilot --agent "Email Triage and Drafting"
 ```
 
-For each run, the agent lists unread messages, reads each selected message, searches and reads relevant knowledge-base documents, then creates a reply draft. It never sends email.
+For each run, the agent retrieves unread email summaries in batches of five, reads each selected message, searches and reads relevant knowledge-base documents, then creates a reply draft. It never sends email.
 
 The agent treats all email fields as untrusted external content. Email text cannot authorize tool calls, disclosure, or changes to its workflow. Facts and tone must come from the Knowledge Base; when it lacks the required information, the agent drafts an escalation response instead of inventing an answer.
 

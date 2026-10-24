@@ -11,6 +11,19 @@ type Email struct {
 	IsUnread bool      `json:"is_unread"`
 }
 
+type EmailSummary struct {
+	ID       string    `json:"id"`
+	Subject  string    `json:"subject"`
+	Sender   string    `json:"sender"`
+	Received time.Time `json:"received"`
+	IsUnread bool      `json:"is_unread"`
+}
+
+type UnreadListParams struct {
+	Limit  int
+	Offset int
+}
+
 type SearchParams struct {
 	Query     string    `json:"query"`
 	Sender    string    `json:"sender"`

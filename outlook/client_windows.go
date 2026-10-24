@@ -16,7 +16,9 @@ const (
 	olFolderInbox = 6
 	olMailItem    = 0
 	maxResults    = 50
-	maxUnread     = 200
+
+	MaxUnread          = 2000
+	DefaultUnreadLimit = 5
 )
 
 // Client serializes all COM work onto one STA-bound OS thread.
@@ -52,8 +54,14 @@ func (c *Client) dispatch(fn func() error) error {
 	return <-done
 }
 
-func (c *Client) ListUnread() ([]Email, error) {
-	var emails []Email
+func (c *Client) ListUnread(params UnreadListParams) ([]EmailSummary, error) {
+	if params.Limit < 1 || params.Limit > MaxUnread {
+		return nil, fmt.Errorf("unread email limit must be between 1 and %d", MaxUnread)
+	}
+	if params.Offset < 0 || params.Offset >= MaxUnread {
+		return nil, fmt.Errorf("unread email offset must be between 0 and %d", MaxUnread-1)
+	}
+	var emails []EmailSummary
 	err := c.dispatch(func() error {
 		items, err := inboxItems()
 		if err != nil {
@@ -68,7 +76,7 @@ func (c *Client) ListUnread() ([]Email, error) {
 		if _, err := oleutil.CallMethod(filtered.ToIDispatch(), "Sort", "[ReceivedTime]", true); err != nil {
 			return fmt.Errorf("sort unread items: %w", err)
 		}
-		return collectEmails(filtered.ToIDispatch(), &emails, maxUnread)
+		return collectEmailSummaries(filtered.ToIDispatch(), &emails, params.Offset, params.Limit, MaxUnread)
 	})
 	return emails, err
 }
@@ -142,8 +150,8 @@ func (c *Client) CreateDraft(params DraftParams) (string, error) {
 	return entryID, err
 }
 
-func (c *Client) SearchEmails(params SearchParams) ([]Email, error) {
-	var emails []Email
+func (c *Client) SearchEmails(params SearchParams) ([]EmailSummary, error) {
+	var emails []EmailSummary
 	err := c.dispatch(func() error {
 		items, err := inboxItems()
 		if err != nil {
@@ -158,7 +166,7 @@ func (c *Client) SearchEmails(params SearchParams) ([]Email, error) {
 		if _, err := oleutil.CallMethod(filtered.ToIDispatch(), "Sort", "[ReceivedTime]", true); err != nil {
 			return fmt.Errorf("sort search items: %w", err)
 		}
-		return collectEmails(filtered.ToIDispatch(), &emails, maxResults)
+		return collectEmailSummaries(filtered.ToIDispatch(), &emails, 0, maxResults, maxResults)
 	})
 	return emails, err
 }
@@ -259,23 +267,30 @@ func itemFromID(entryID string) (*ole.IDispatch, error) {
 	return item, nil
 }
 
-func collectEmails(items *ole.IDispatch, emails *[]Email, limit int) error {
+func collectEmailSummaries(items *ole.IDispatch, emails *[]EmailSummary, offset, limit, maximum int) error {
 	count, err := oleutil.GetProperty(items, "Count")
 	if err != nil {
 		return fmt.Errorf("get item count: %w", err)
 	}
 	defer count.Clear()
 	countToRead := int(count.Val)
-	if limit > 0 && countToRead > limit {
-		countToRead = limit
+	if countToRead > maximum {
+		countToRead = maximum
 	}
-	for index := 1; index <= countToRead; index++ {
+	if offset >= countToRead {
+		return nil
+	}
+	end := offset + limit
+	if end > countToRead {
+		end = countToRead
+	}
+	for index := offset + 1; index <= end; index++ {
 		value, err := oleutil.CallMethod(items, "Item", index)
 		if err != nil {
 			return fmt.Errorf("get item %d: %w", index, err)
 		}
 		item := value.ToIDispatch()
-		email, conversionErr := emailFromItem(item)
+		email, conversionErr := emailSummaryFromItem(item)
 		value.Clear()
 		if conversionErr != nil {
 			return conversionErr
@@ -283,6 +298,37 @@ func collectEmails(items *ole.IDispatch, emails *[]Email, limit int) error {
 		*emails = append(*emails, email)
 	}
 	return nil
+}
+
+func emailSummaryFromItem(item *ole.IDispatch) (EmailSummary, error) {
+	var email EmailSummary
+	var err error
+	for _, field := range []struct {
+		name   string
+		target *string
+	}{
+		{"EntryID", &email.ID}, {"Subject", &email.Subject}, {"SenderEmailAddress", &email.Sender},
+	} {
+		*field.target, err = stringProperty(item, field.name)
+		if err != nil {
+			return EmailSummary{}, err
+		}
+	}
+	unread, err := oleutil.GetProperty(item, "UnRead")
+	if err != nil {
+		return EmailSummary{}, fmt.Errorf("get UnRead: %w", err)
+	}
+	email.IsUnread = unread.Val != 0
+	unread.Clear()
+	received, err := oleutil.GetProperty(item, "ReceivedTime")
+	if err != nil {
+		return EmailSummary{}, fmt.Errorf("get ReceivedTime: %w", err)
+	}
+	defer received.Clear()
+	if value, ok := received.Value().(time.Time); ok {
+		email.Received = value
+	}
+	return email, nil
 }
 
 func emailFromItem(item *ole.IDispatch) (Email, error) {

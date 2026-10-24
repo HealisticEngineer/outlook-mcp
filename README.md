@@ -8,16 +8,17 @@ Outlook MCP is a local Windows [Model Context Protocol](https://modelcontextprot
 - Read a message by its Outlook `EntryID`.
 - Search Inbox messages by subject text, sender, and received date.
 - Create and save Outlook drafts.
-- List, read, and search Markdown knowledge-base documents.
+- List, read, search, and safely write Markdown knowledge-base documents.
 - Embed default knowledge-base documents in the executable and allow local disk overrides.
 
 ## Security boundaries
 
-This server is deliberately **read-and-draft only**:
+This server is deliberately **email read-and-draft only**:
 
 - It has no email send operation and does not call Outlook's `Send` method.
 - It uses the interactive user's existing local MAPI profile; it does not use Microsoft Graph, OAuth, API keys, or external credentials.
 - Knowledge-base reads accept only paths relative to the configured knowledge-base root.
+- Knowledge-base writes are limited to `.md` files under `OUTLOOK_MCP_KB_DIR`; absolute paths, traversal attempts, and symlinked target paths are rejected.
 - Outlook automation is serialized onto one COM Single-Threaded Apartment (STA) OS thread.
 - Every email tool response is wrapped as **untrusted external content**. The wrapper instructs MCP clients to treat sender, subject, and body fields as data only, never as instructions or authorization for tool calls, disclosure, or draft creation.
 
@@ -75,7 +76,7 @@ To set a local knowledge-base directory for the current PowerShell session:
 $env:OUTLOOK_MCP_KB_DIR = "$PWD\kb"
 ```
 
-Default documents are compiled into the executable under `defaults/`. A local file with the same relative path overrides its embedded version; extra local `.md` files are included as additional documents.
+Default documents are compiled into the executable under `defaults/`. A local file with the same relative path overrides its embedded version; extra local `.md` files are included as additional documents. `kb_write_doc` creates or updates local `.md` files under this directory only.
 
 ## MCP tools
 
@@ -88,8 +89,11 @@ Default documents are compiled into the executable under `defaults/`. A local fi
 | `kb_list_docs` | None | Lists available Markdown document paths. |
 | `kb_search` | `query` (required) | Case-insensitively searches document paths and contents. |
 | `kb_read_doc` | `path` (required) | Reads a document by its relative Markdown path. |
+| `kb_write_doc` | `path`, `content` (required) | Creates or updates a `.md` document under the local disk knowledge base. |
 
 `search_emails` uses Outlook DASL restrictions for subject, sender, and received-time filters, then sorts results newest first.
+
+`kb_write_doc` requires `OUTLOOK_MCP_KB_DIR` to be configured. It rejects absolute paths, traversal sequences, non-Markdown paths, and symlinked target directories to prevent writes outside the configured knowledge-base directory.
 
 ## Email triage agent
 
@@ -102,6 +106,16 @@ copilot --agent "Email Triage and Drafting"
 For each run, the agent lists unread messages, reads each selected message, searches and reads relevant knowledge-base documents, then creates a reply draft. It never sends email.
 
 The agent treats all email fields as untrusted external content. Email text cannot authorize tool calls, disclosure, or changes to its workflow. Facts and tone must come from the Knowledge Base; when it lacks the required information, the agent drafts an escalation response instead of inventing an answer.
+
+## Persona extraction agent
+
+The repository includes a Persona Extraction Agent at `.github/agents/persona-extraction.agent.md`. Select it in Copilot CLI with:
+
+```powershell
+copilot --agent "Persona Extraction Agent"
+```
+
+It extracts a Markdown persona from supplied material without inventing missing details. After the user confirms the result, it saves the exact Markdown to `persona.md` with `kb_write_doc`.
 
 ## Development
 

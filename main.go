@@ -160,6 +160,28 @@ func registerKnowledgeTools(mcpServer *server.MCPServer, store *knowledge.Store)
 		document, err := store.ReadDoc(documentPath)
 		return jsonResult(document, err)
 	})
+
+	mcpServer.AddTool(mcp.NewTool("kb_write_doc",
+		mcp.WithDescription("Write or update a Markdown document in the local disk Knowledge Base."),
+		mcp.WithString("path", mcp.Description("Relative Markdown path, for example persona.md or rules/tone.md."), mcp.Required()),
+		mcp.WithString("content", mcp.Description("Complete raw Markdown content to write."), mcp.Required()),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if err := ctx.Err(); err != nil {
+			return toolError(err), nil
+		}
+		documentPath, err := requiredString(request, "path")
+		if err != nil {
+			return toolError(err), nil
+		}
+		content, err := requiredRawString(request, "content")
+		if err != nil {
+			return toolError(err), nil
+		}
+		if err := store.WriteDoc(documentPath, content); err != nil {
+			return toolError(err), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Successfully wrote document to %s", documentPath)), nil
+	})
 }
 
 func requiredString(request mcp.CallToolRequest, key string) (string, error) {
@@ -180,6 +202,14 @@ func optionalString(request mcp.CallToolRequest, key string) (string, error) {
 		return "", fmt.Errorf("%s must be a string", key)
 	}
 	return strings.TrimSpace(text), nil
+}
+
+func requiredRawString(request mcp.CallToolRequest, key string) (string, error) {
+	value, ok := request.Params.Arguments[key].(string)
+	if !ok || strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("%s is required", key)
+	}
+	return value, nil
 }
 
 func draftParams(request mcp.CallToolRequest) (outlook.DraftParams, error) {

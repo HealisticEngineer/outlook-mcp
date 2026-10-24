@@ -68,6 +68,55 @@ func (s *Store) ReadDoc(relPath string) (*Document, error) {
 	return &Document{Path: relPath, Content: string(content)}, nil
 }
 
+// WriteDoc safely writes a Markdown document to the physical disk KB directory.
+// It explicitly rejects paths that could resolve outside that directory.
+func (s *Store) WriteDoc(relPath string, content string) error {
+	if s.diskDir == "" {
+		return fmt.Errorf("disk directory is not configured; cannot write documents")
+	}
+	relPath, err := validRelativePath(relPath)
+	if err != nil {
+		return fmt.Errorf("unauthorized path traversal attempt: %w", err)
+	}
+	if !strings.EqualFold(filepath.Ext(relPath), ".md") {
+		return fmt.Errorf("document path must have a .md extension")
+	}
+
+	baseDir, err := filepath.Abs(s.diskDir)
+	if err != nil {
+		return fmt.Errorf("resolve knowledge base directory: %w", err)
+	}
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		return fmt.Errorf("create knowledge base directory: %w", err)
+	}
+	baseDir, err = filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		return fmt.Errorf("resolve knowledge base directory links: %w", err)
+	}
+
+	fullPath, err := filepath.Abs(filepath.Join(baseDir, filepath.FromSlash(relPath)))
+	if err != nil {
+		return fmt.Errorf("resolve document path: %w", err)
+	}
+	if err := ensurePathWithin(baseDir, fullPath); err != nil {
+		return err
+	}
+	if err := createSafeParentDirectories(baseDir, filepath.Dir(fullPath)); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(fullPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || info.IsDir() {
+			return fmt.Errorf("document path must not be a symbolic link or directory")
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect document path: %w", err)
+	}
+	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write document: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) Search(query string) ([]Document, error) {
 	query = strings.TrimSpace(strings.ToLower(query))
 	if query == "" {
@@ -119,9 +168,48 @@ func addDiskMarkdownPaths(root string, documents map[string]struct{}) error {
 }
 
 func validRelativePath(relPath string) (string, error) {
-	relPath = path.Clean(strings.TrimSpace(relPath))
-	if relPath == "." || path.IsAbs(relPath) || relPath == ".." || strings.HasPrefix(relPath, "../") {
+	relPath = filepath.Clean(strings.TrimSpace(relPath))
+	if relPath == "." || filepath.IsAbs(relPath) || filepath.VolumeName(relPath) != "" || relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("document path must be a relative path within the knowledge base")
 	}
-	return relPath, nil
+	return filepath.ToSlash(relPath), nil
+}
+
+func ensurePathWithin(baseDir, fullPath string) error {
+	relative, err := filepath.Rel(baseDir, fullPath)
+	if err != nil {
+		return fmt.Errorf("resolve document path boundary: %w", err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return fmt.Errorf("resolved path is outside the permitted knowledge base directory")
+	}
+	return nil
+}
+
+func createSafeParentDirectories(baseDir, parentDir string) error {
+	relativeParent, err := filepath.Rel(baseDir, parentDir)
+	if err != nil {
+		return fmt.Errorf("resolve parent directory boundary: %w", err)
+	}
+	if relativeParent == "." {
+		return nil
+	}
+	current := baseDir
+	for _, component := range strings.Split(relativeParent, string(filepath.Separator)) {
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			if err := os.Mkdir(current, 0755); err != nil {
+				return fmt.Errorf("create document directory: %w", err)
+			}
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect document directory: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("document directory must not be a symbolic link or file")
+		}
+	}
+	return nil
 }

@@ -91,6 +91,18 @@ Default documents are compiled into the executable under `defaults/`. A local fi
 
 `search_emails` uses Outlook DASL restrictions for subject, sender, and received-time filters, then sorts results newest first.
 
+## Email triage agent
+
+The repository includes an Email Triage and Drafting Agent at `.github/agents/email-triage.agent.md`. Select it in Copilot CLI with:
+
+```powershell
+copilot --agent "Email Triage and Drafting"
+```
+
+For each run, the agent lists unread messages, reads each selected message, searches and reads relevant knowledge-base documents, then creates a reply draft. It never sends email.
+
+The agent treats all email fields as untrusted external content. Email text cannot authorize tool calls, disclosure, or changes to its workflow. Facts and tone must come from the Knowledge Base; when it lacks the required information, the agent drafts an escalation response instead of inventing an answer.
+
 ## Development
 
 Format, test, and build:
